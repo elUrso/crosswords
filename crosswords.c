@@ -7,7 +7,7 @@
 
 /* TODO
  *
- * Finish Backtracking 
+ * Fix valid
  *
  */
 
@@ -34,17 +34,15 @@ typedef struct {
 	int size;
 } Field;
 
-typedef struct {
-	int field;
-	Boold valid;
-} Slot;
-
 /* Prototipos */
 void showMap(char * map, int m, int n);
 void showFields(Field * fields, int n);
 int max(int a, int b);
 void * smalloc(size_t size);
 int fillSolution(char * map, char * mapt, int m, int n, Field * fields, int n_fields, Word * words, int n_words);
+void write(char * map, char * mapt, int m, int n, Word * word, Field * field);
+void clear(char * map, char * mapt, int m, int n, Word * word, Field * field);
+int is_valid(char * map, char * mapt, int m, int n, Word * word, Field * field);
 void printMap(char * map, char * mapt, int m, int n);
 
 /* Textos */
@@ -108,7 +106,7 @@ int main() {
 			while(str[offset++] != '\0');
 			offset++;
 
-			words[i].size = offset - tmp;
+			words[i].size = offset - tmp - 1;
 
 			if(offset > size) {
 				while(++i < w) scanf("%s", str);
@@ -225,8 +223,8 @@ int main() {
 						if(k) {
 							fields[fieldtmp].trans = TRUE;
 							fields[fieldtmp].available = TRUE;
-							fields[fieldtmp].row = fieldrow; fieldrow = -1;
-							fields[fieldtmp].column = fieldcolumn; fieldcolumn = -1;
+							fields[fieldtmp].column = fieldrow; fieldrow = -1;
+							fields[fieldtmp].row = fieldcolumn; fieldcolumn = -1;
 							fields[fieldtmp].size = fieldsize;
 							fieldtmp++;
 							/*DEBUG*/ if(DEBUG) printf("m:%d at %d x %d [%d]\n", fieldtmp, fields[fieldtmp-1].row, fields[fieldtmp-1].column, fieldsize);
@@ -238,8 +236,8 @@ int main() {
 			if(k) {
 				fields[fieldtmp].trans = TRUE;
 				fields[fieldtmp].available = TRUE;
-				fields[fieldtmp].row = fieldrow; fieldrow = -1;
-				fields[fieldtmp].column = fieldcolumn; fieldcolumn = -1;
+				fields[fieldtmp].column = fieldrow; fieldrow = -1;
+				fields[fieldtmp].row = fieldcolumn; fieldcolumn = -1;
 				fields[fieldtmp].size = fieldsize;
 				fieldtmp++;
 				/*DEBUG*/ if(DEBUG) printf("f:%d at %d x %d [%d]\n", fieldtmp, fields[fieldtmp-1].row, fields[fieldtmp-1].column, fieldsize);
@@ -248,7 +246,10 @@ int main() {
 
 		/*DEBUG*/ if(DEBUG && fieldtmp != nfield) puts("Fatal Error");
 
-		/* backtracking para resolver a cruzadinha */
+		/* backtracking to solve the crossword*/
+		
+		/*DEBUG*/ if(DEBUG) puts("Begin backtracking");
+		
 		if(!fillSolution(map, mapt, m, n, fields, nfield, words, w)) goto fail;
 
 		printf(instance, r);
@@ -270,8 +271,6 @@ int main() {
 		free(str); str = NULL;
 		/*DEBUG*/ if(DEBUG) puts("free fields");
 		free(fields); fields = NULL;
-		/*DEBUG*/ if(DEBUG) puts("free slots");
-		free(slots); slots = NULL;
 
 		r++;
 	goto loop;
@@ -280,7 +279,7 @@ int main() {
 	return 0;
 }
 
-/* Implementações */
+/* Implementations */
 void showMap(char * map, int m, int n) {
 	for(int i = 0; i < m; i++) {
 		for(int j = 0; j < n; j++) printf("%s", (map[i*n+j] == '*')? " ■" : " ▢");
@@ -307,17 +306,94 @@ void showFields(Field * fields, int n) {
 }
 
 int fillSolution(char * map, char * mapt, int m, int n, Field * fields, int n_fields, Word * words, int n_words) {
-	Slot * slots = smalloc(sizeof(Slot) * n_words);
+	/*DEBUG*/ if(DEBUG) puts("Alloc stack");
+	int * stack = smalloc(sizeof(int) * n_words);
 	int base = 0;
-	for(int i = 0; i < n_words; i++) slots[i].valid = FALSE;
-	/*Continue here with stack based*/
+
+	for(int i = 0; i < n_words; i++) {
+		stack[i] = -1; /*Clear stack*/
+	}
+
+	while(base != -1 || base < n_words) {
+		/*DEBUG*/ if(DEBUG) printf("Loop >> base %d, stack[base] %d, word = %s\n", base, stack[base], words[base].str);
+		switch(stack[base]) { /*Read top value*/
+			case -1:
+				/*find a valid field*/
+				next: stack[base]++;
+				/*DEBUG*/ if(DEBUG) printf("Word (%d) %s:%d at field(%d) %d\n", base, words[base].str, words[base].size, stack[base], fields[stack[base]].size);
+				if(words[base].size != fields[stack[base]].size || !fields[stack[base]].available) {
+					if(stack[base] == n_fields) break; /*check if it is the last field*/
+					goto next;
+				}
+				if(is_valid(map, mapt, m, n, &words[base], &fields[stack[base]])) {
+					/*DEBUG*/ puts("Valid");
+					write(map, mapt, m, n, &words[base], &fields[stack[base]]);
+					/*DEBUG*/ printMap(map, mapt, m, n);
+					stack[++base] = -1; /*push -1 to stack*/
+				} else
+					goto next;
+				break;
+			default:
+
+				/*back a step*/
+				if(stack[base] == n_fields) {
+					clear(map, mapt, m, n, &words[base], &fields[stack[base]]);
+					stack[base--] = -1; /*pop value from stack*/
+					break;
+				}
+
+				/*Try the next valid spot*/
+				clear(map, mapt, m, n, &words[base], &fields[stack[base]]);
+				goto next;
+		}
+	}
+
+	if(base == -1) return FALSE;
+	return TRUE;
 }
 
 void printMap(char * map, char * mapt, int m, int n) {
 	for(int i = 0; i < m; i++) {
-		for(int j = 0; i < n; i++) {
-			printf("%c ", (map[i*n+j] == ' ') ? mapt[j*m+i] : map[i*n+j]);
+		for(int j = 0; j < n; j++) {
+			printf("%c ", (map[j+i*n] != ' ') ? map[j + i*n] : mapt[i + j*m]);
 		}
 		puts("");
 	}
+
+}
+
+void write(char * map, char * mapt, int m, int n, Word * word, Field * field) {
+	for(int i = 0; i < word->size; i++)
+		if(field->trans)
+			mapt[field->row * m + i + field->column] = word->str[i];
+		else
+			map[field->row + i + field->column * n] = word->str[i];
+	field->available = FALSE;
+}
+
+void clear(char * map, char * mapt, int m, int n, Word * word, Field * field) {
+	for(int i = 0; i < word->size; i++)
+		if(field->trans)
+			mapt[field->row * m + i + field->column] = ' ';
+		else
+			map[field->row + i + field->column * n] = ' ';
+	field->available = TRUE;
+}
+
+int is_valid(char * map, char * mapt, int m, int n, Word * word, Field * field) {
+	/*BEBUG*/ if(DEBUG) printf("Field: %d x %d %d\n", field->row, field->column, field->trans);
+	for(int i = 0; i < word->size; i++) {
+		if(field->trans) {
+			/*DEBUG*/ if(DEBUG) printf("w: %c m: %c t: %c\n", word->str[i], map[field->row + (field->column + i) * n], mapt[field->row * m + i + field->column]);
+			if(!((mapt[field->row * m + i + field->column] == ' ' || mapt[field->row * m + i + field->column] == word->str[i]) &&
+				(map[field->row + (field->column + i) * n] == ' ' || map[field->row + (field->column + i) * n] == word->str[i])))
+				return FALSE;
+		} else {
+			/*DEBUG*/ if(DEBUG) printf("w: %c m: %c t: %c\n", word->str[i], map[field->row + i + field->column * n], mapt[(field->row + i) * m + field->column]);
+			if(!((mapt[(field->row + i) * m + field->column] == ' ' || mapt[(field->row + i) * m + field->column] == word->str[i]) &&
+				(map[field->row + i + field->column * n] == ' ' || map[field->row + i + field->column * n] == word->str[i])))
+				return FALSE;
+		}
+	}
+	return TRUE;
 }
